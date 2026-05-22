@@ -40,8 +40,18 @@ bool ForceSensorReader::start(const std::string& device, int baudrate) {
     stop();
     return false;
   }
-  if (!sendCommand("SMPR", "400")) {
-    std::cerr << "failed to set sample rate\n";
+  if (!sendCommand("SGDM", "(A01,A02,A03,A04,A05,A06);C;1;(WMA:1)")) {
+    std::cerr << "failed to set receive channel mode\n";
+    stop();
+    return false;
+  }
+  if (!sendCommand("SMPRM", "L")) {
+    std::cerr << "failed to set sampling mode\n";
+    stop();
+    return false;
+  }
+  if (!sendCommand("SMPF", "300")) {
+    std::cerr << "failed to set sample frequency\n";
     stop();
     return false;
   }
@@ -68,6 +78,8 @@ void ForceSensorReader::stop() {
     running_ = false;
   }
 
+  sendCommand("GSD", "STOP");
+
   if (read_thread_.joinable()) {
     read_thread_.join();
   }
@@ -90,7 +102,9 @@ bool ForceSensorReader::sendCommand(const std::string& command, const std::strin
     last_ack_.reset();
   }
 
-  const std::string packet = "AT+" + command + "=" + value + "\r\n";
+  const std::string packet = value.empty()
+      ? "AT+" + command + "\r\n"
+      : "AT+" + command + "=" + value + "\r\n";
   if (serial_.writeString(packet) < 0) {
     std::perror(("write " + command).c_str());
     return false;

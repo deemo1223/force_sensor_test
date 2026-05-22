@@ -22,7 +22,7 @@ public:
   std::optional<forcesensor_data> latestReading() const noexcept;
 
 private:
-  bool sendCommand(const std::string& command, const std::string& value);
+  bool sendCommand(const std::string& command, const std::string& value = "");
   bool onAck(std::string ack);
   bool onForceFrame(float fx, float fy, float fz, float mx, float my, float mz);
   void readLoop();
