@@ -1,8 +1,28 @@
 # force_sensor_test
 
-这个目录是从 `ct_rl_pkg` 中拆出来的独立力传感器读取工程，目标是最小依赖、可单独编译运行，同时尽量复用原项目里的协议解析代码。
+独立的力传感器读取工程，从 `ct_rl_pkg` 拆离出来。目标是最小依赖、可单独编译运行，同时复用原项目的协议解析代码。
+
+## 项目结构
+
+```
+src/
+├── main.cpp                    # 简洁的主程序（参数解析、启动/停止、数据输出）
+├── force_sensor/
+│   ├── ForceSensorReader.h     # 传感器读取控制器（核心逻辑）
+│   ├── ForceSensorReader.cpp
+│   ├── PosixSerialPort.h       # POSIX 串口操作层
+│   └── PosixSerialPort.cpp
+└── sri/                        # 协议解析层（复用自 ct_rl_pkg）
+    ├── sriCommParser.*
+    ├── sriCommCircularBuffer.*
+    ├── sriCommATParser.*
+    ├── sriCommM8218Parser.*
+    └── dataStructForce.h
+```
 
 ## 复用来源
+
+协议解析代码来自 `ct_rl_pkg`：
 
 - `src/hardware/sriRDSerialDemo/sriCommParser.*`
 - `src/hardware/sriRDSerialDemo/sriCommCircularBuffer.*`
@@ -10,40 +30,43 @@
 - `src/hardware/sriRDSerialDemo/sriCommM8218Parser.*`
 - `include/ct_rl_pkg/hardware/dataStructForce.h`
 
-`force_sensor_test/src/sri` 中的源码是从上述文件最小化搬运过来的，保留了原始协议解析逻辑，并修正了独立运行时会暴露出来的内存管理问题。
+## 工作流程
 
-## 项目内力传感器逻辑
+1. **主程序** (`src/main.cpp`)
+   - 解析命令行参数（串口设备、波特率）
+   - 创建并启动 `ForceSensorReader`
+   - 定时轮询最新数据，格式化输出
+   - 处理 Ctrl+C 信号优雅关闭
 
-当前项目的力传感器主链路是：
+2. **传感器控制层** (`src/force_sensor/ForceSensorReader`)
+   - 通过 AT 指令配置传感器（停止、采样率、校验模式）
+   - 启动后台读线程接收数据
+   - 管理 ACK 应答和数据解析回调
+   - 对外提供线程安全的 `latestReading()` 接口
 
-1. `src/main.cpp`
-   通过 `serialSixFTSensor` 发送 `AT+GSD=STOP`、`AT+SMPR=400`、`AT+GSD` 启停和配置传感器
-2. `src/hardware/protocolSeiral.cpp`
-   启动串口接收流程
-3. `src/hardware/sriRDSerialDemo/*`
-   解析 `ACK` 和 `M8218` 连续数据帧
-4. `src/hardware/sriRDSerialDemo/sriCommManager.cpp`
-   把解析结果写入全局 `forcedata`
-5. `include/ct_rl_pkg/hardware/dataStructForce.h`
-   对外提供 `forcedata.F[3]`、`forcedata.M[3]` 等数据
+3. **串口操作层** (`src/force_sensor/PosixSerialPort`)
+   - 打开/关闭 POSIX 串口
+   - 配置 termios 参数（无缓冲、非阻塞 I/O）
+   - 提供 `readSome()` 和 `writeString()` 方法
 
-其中当前主程序真正走的是 `CSRICommManager::OnCommM8218()` 这条逻辑，不是 `sixaxis_callback_handle()` 那套手工解包路径。
+4. **协议解析** (`src/sri/*`)
+   - `CSRICommATParser`：解析 AT 指令应答
+   - `CSRICommM8218Parser`：解析六维力/力矩数据帧
+   - 通过回调函数将结果传回 `ForceSensorReader`
 
-## 坐标映射与置零
+## 坐标系与置零
 
-独立工程保持了 `CSRICommManager::OnCommM8218()` 的行为：
+- 前 9 帧数据用于记录偏置（offset）
+- 从第 10 帧开始输出去零后的测量值
 
-- 前 9 帧用于记录 offset
-- 从第 10 帧开始输出去零后的 6 维力/力矩
+坐标映射（保持与原项目一致）：
 
-坐标映射保持和原项目一致：
-
-- `forcedata.F[0] = fz - offset_z`
-- `forcedata.F[1] = -fy - offset_y`
-- `forcedata.F[2] = fx - offset_x`
-- `forcedata.M[0] = mz - offset_mz`
-- `forcedata.M[1] = -my - offset_my`
-- `forcedata.M[2] = -mx - offset_mx`
+- `F[0] = fz - offset_z`
+- `F[1] = -fy - offset_y`
+- `F[2] = fx - offset_x`
+- `M[0] = mz - offset_mz`
+- `M[1] = -my - offset_my`
+- `M[2] = -mx - offset_mx`
 
 ## 编译
 
