@@ -1,0 +1,40 @@
+# Build directories
+/build/
+build_local/
+
+# CMake files
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+install_manifest.txt
+compile_commands.json
+CTestTestfile.cmake
+CMakeDirectoryInformation.cmake
+CMakeScripts/
+
+# Generated executables
+force_sensor_test
+*.o
+*.obj
+*.so
+*.dylib
+*.dll
+*.exe
+
+# Editor temporary files
+*~
+*.swp
+*.swo
+.DS_Store
+.vscode/
+.idea/
+
+# Logs and user-specific files
+*.log
+*.user
+*.sublime-workspace
+*.sublime-project
+
+# System files
+Thumbs.db
