@@ -22,7 +22,7 @@ int main(int argc, char** argv) {
   std::signal(SIGINT, handleSignal);
   std::signal(SIGTERM, handleSignal);
 
-  const std::string device = (argc >= 2 ? argv[1] : "/dev/ftSensorSerial");
+  const std::string device = (argc >= 2 ? argv[1] : "/dev/ttyUSB0");
   ForceSensorReader reader;
   if (!reader.start(device, 115200)) {
     std::cerr << "failed to start sensor reader for " << device << '\n';

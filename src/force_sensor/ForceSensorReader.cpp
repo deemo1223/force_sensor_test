@@ -33,33 +33,41 @@ bool ForceSensorReader::start(const std::string& device, int baudrate) {
     std::lock_guard<std::mutex> lock(state_mutex_);
     running_ = true;
   }
+  // reset zeroing state so we compute a fresh offset on each start
+  {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    zeroing_done_ = false;
+    zeroing_samples_ = 0;
+    zeroing_sums_ = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    zeroing_start_time_ = std::chrono::steady_clock::now();
+  }
   read_thread_ = std::thread([this]() { readLoop(); });
 
-  if (!sendCommand("GSD", "STOP")) {
-    std::cerr << "failed to stop streaming before configuration\n";
-    stop();
-    return false;
-  }
-  if (!sendCommand("SGDM", "(A01,A02,A03,A04,A05,A06);C;1;(WMA:1)")) {
-    std::cerr << "failed to set receive channel mode\n";
-    stop();
-    return false;
-  }
-  if (!sendCommand("SMPRM", "L")) {
-    std::cerr << "failed to set sampling mode\n";
-    stop();
-    return false;
-  }
-  if (!sendCommand("SMPF", "300")) {
-    std::cerr << "failed to set sample frequency\n";
-    stop();
-    return false;
-  }
-  if (!sendCommand("DCKMD", "SUM")) {
-    std::cerr << "failed to set checksum mode\n";
-    stop();
-    return false;
-  }
+  // if (!sendCommand("GSD", "STOP")) {
+  //   std::cerr << "failed to stop streaming before configuration\n";
+  //   stop();
+  //   return false;
+  // }
+  // if (!sendCommand("SGDM", "(A01,A02,A03,A04,A05,A06);C;1;(WMA:1)")) {
+  //   std::cerr << "failed to set receive channel mode\n";
+  //   stop();
+  //   return false;
+  // }
+  // if (!sendCommand("SMPRM", "L")) {
+  //   std::cerr << "failed to set sampling mode\n";
+  //   stop();
+  //   return false;
+  // }
+  // if (!sendCommand("SMPF", "300")) {
+  //   std::cerr << "failed to set sample frequency\n";
+  //   stop();
+  //   return false;
+  // }
+  // if (!sendCommand("DCKMD", "SUM")) {
+  //   std::cerr << "failed to set checksum mode\n";
+  //   stop();
+  //   return false;
+  // }
   if (serial_.writeString("AT+GSD\r\n") < 0) {
     std::perror("write AT+GSD");
     stop();
@@ -131,27 +139,51 @@ bool ForceSensorReader::onAck(std::string ack) {
 }
 
 bool ForceSensorReader::onForceFrame(float fx, float fy, float fz, float mx, float my, float mz) {
-  ++frame_count_;
-  if (frame_count_ < 10) {
-    ft_offset_data_[0] = fz;
-    ft_offset_data_[1] = -fy;
-    ft_offset_data_[2] = fx;
-    ft_offset_data_[3] = mz;
-    ft_offset_data_[4] = -my;
-    ft_offset_data_[5] = -mx;
-    return true;
+  // map incoming values to stored channel ordering
+  double vals[6];
+  vals[0] = fz;
+  vals[1] = -fy;
+  vals[2] = fx;
+  vals[3] = mz;
+  vals[4] = -my;
+  vals[5] = -mx;
+
+  {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    if (!zeroing_done_) {
+      if (zeroing_samples_ == 0) {
+        zeroing_start_time_ = std::chrono::steady_clock::now();
+      }
+      for (int i = 0; i < 6; ++i) {
+        zeroing_sums_[i] += vals[i];
+      }
+      ++zeroing_samples_;
+
+      const float elapsed = std::chrono::duration_cast<std::chrono::duration<float>>(std::chrono::steady_clock::now() - zeroing_start_time_).count();
+      if (elapsed >= zeroing_duration_seconds_) {
+        for (int i = 0; i < 6; ++i) {
+          ft_offset_data_[i] = static_cast<float>(zeroing_sums_[i] / static_cast<double>(zeroing_samples_));
+        }
+        zeroing_done_ = true;
+        std::cout << "Zero offset computed: ";
+        for (int i = 0; i < 6; ++i) {
+          std::cout << ft_offset_data_[i] << (i + 1 < 6 ? ", " : "\n");
+        }
+      }
+      return true;
+    }
+
+    forcesensor_data reading{};
+    reading.F[0] = static_cast<float>(vals[0] - ft_offset_data_[0]);
+    reading.F[1] = static_cast<float>(vals[1] - ft_offset_data_[1]);
+    reading.F[2] = static_cast<float>(vals[2] - ft_offset_data_[2]);
+    reading.M[0] = static_cast<float>(vals[3] - ft_offset_data_[3]);
+    reading.M[1] = static_cast<float>(vals[4] - ft_offset_data_[4]);
+    reading.M[2] = static_cast<float>(vals[5] - ft_offset_data_[5]);
+
+    current_reading_ = reading;
   }
 
-  forcesensor_data reading{};
-  reading.F[0] = fz - ft_offset_data_[0];
-  reading.F[1] = -fy - ft_offset_data_[1];
-  reading.F[2] = fx - ft_offset_data_[2];
-  reading.M[0] = mz - ft_offset_data_[3];
-  reading.M[1] = -my - ft_offset_data_[4];
-  reading.M[2] = -mx - ft_offset_data_[5];
-
-  std::lock_guard<std::mutex> lock(state_mutex_);
-  current_reading_ = reading;
   return true;
 }
 

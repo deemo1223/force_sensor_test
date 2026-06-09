@@ -5,6 +5,9 @@
 #include <optional>
 #include <string>
 #include <thread>
+#include <array>
+#include <chrono>
+#include <cstdint>
 
 #include "sri/dataStructForce.h"
 #include "sri/sriCommATParser.h"
@@ -37,6 +40,12 @@ private:
   std::optional<std::string> last_ack_;
   std::optional<forcesensor_data> current_reading_;
   bool running_ = false;
-  int frame_count_ = 0;
+  // zero-offset state
+  bool zeroing_done_ = false;
   float ft_offset_data_[6] = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f};
+  // accumulation for computing mean during startup zeroing
+  std::array<double, 6> zeroing_sums_ = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+  std::int64_t zeroing_samples_ = 0;
+  std::chrono::steady_clock::time_point zeroing_start_time_;
+  float zeroing_duration_seconds_ = 3.0f; // default zeroing duration
 };
